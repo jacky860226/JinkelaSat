@@ -69,21 +69,11 @@ enum Status: int8_t{ False = 0, True = 1, Undef = 2 };
 class JinkelaSat{
     class Clause: public std::vector<Lit>{
         bool _learnt;
-        union{ float act; uint32_t abs; } extra;
-        void calcAbstraction(){
-            uint32_t abstraction = 0;
-            for(size_t i = 0; i < size(); i++)
-                abstraction |= 1 << (at(i).var() & 31);
-            extra.abs = abstraction;
-        }
+        float act;
     public:
         Clause(){}
-        Clause(const std::vector<Lit> &ps, bool learnt): std::vector<Lit>(ps), _learnt(learnt){
-            if(_learnt) extra.act = 0;
-            else calcAbstraction();
-        }
-        float& activity(){ return extra.act; }
-        uint32_t abstraction() const { return extra.abs; }
+        Clause(const std::vector<Lit> &ps, bool learnt): std::vector<Lit>(ps), _learnt(learnt), act(0){}
+        float& activity(){ return act; }
         bool learnt() const { return _learnt; }
     };
     using ClausePtr = std::shared_ptr<Clause>;
@@ -92,7 +82,7 @@ class JinkelaSat{
         ClausePtr reason;
         size_t level;
         VarData(){}
-        VarData(ClausePtr r, int l):reason(r), level(l){}
+        VarData(ClausePtr r, size_t l):reason(r), level(l){}
     };
 
     struct Watcher {
@@ -112,7 +102,6 @@ class JinkelaSat{
     std::vector<VarData> vardata;
     std::vector<double> activity;
     std::vector<bool> polarity;
-    std::vector<bool> decision;
     std::vector<uint8_t> seen;
     std::set<std::pair<double, int>> order_heap;
     std::unordered_map<int, std::vector<Watcher>> watches;
@@ -141,24 +130,19 @@ class JinkelaSat{
     bool ok;
 
     void insertVarOrder(int x) {
-        if(!order_heap.count({activity[x], x}) && decision[x]) order_heap.emplace(activity[x], x);
-    }
-    void setDecisionVar(int v, bool b){ 
-        decision[v] = b;
-        insertVarOrder(v);
+        if(!order_heap.count({activity[x], x})) order_heap.emplace(activity[x], x);
     }
 
-    int newVar(bool dvar = true){
+    int newVar(){
         int v = next_var++;
         watches[Lit(v, false)].clear();
         watches[Lit(v, true)].clear();
         assigns.emplace_back(Status::Undef);
-        vardata.emplace_back(VarData(nullptr, 0));
+        vardata.emplace_back(nullptr, 0);
         activity.emplace_back(0);
         seen.emplace_back(0);
         polarity.emplace_back(true);
-        decision.emplace_back();
-        setDecisionVar(v, dvar);
+        insertVarOrder(v);
         return v;
     }
 
@@ -206,7 +190,7 @@ class JinkelaSat{
     void rebuildOrderHeap(){
         order_heap.clear();
         for(size_t v = 0; v < nVars(); ++v)
-            if(decision[v] && value(v) == Status::Undef)
+            if(value(v) == Status::Undef)
                 order_heap.emplace(activity[v], v);
     }
 
@@ -431,7 +415,7 @@ class JinkelaSat{
 
     Lit pickBranchLit(){
         int next = var_Undef;
-        while (next == var_Undef || value(next) != Status::Undef || !decision[next])
+        while(next == var_Undef || value(next) != Status::Undef)
             if(order_heap.empty()){
                 next = var_Undef;
                 break;

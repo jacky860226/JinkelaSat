@@ -53,4 +53,4 @@ UNSAT
 
 ---
 
-This project is an assignment for **NTHU 10820CS 538100 Applied Mathematical Logic**, Plagiarism is prohibited.
+This project is an assignment for **NTHU 10820CS 538100 Applied Mathematical Logic**, plagiarism is prohibited.
