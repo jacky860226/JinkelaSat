@@ -47,10 +47,7 @@ struct Lit{
     int v;
     Lit(){}
     Lit(int var, bool sign = false): v(var + var + (int)sign){}
-    bool operator==(Lit b) const { return v == b.v; }
-    bool operator!=(Lit b) const { return v != b.v; }
-    bool operator<(Lit b) const { return v < b.v; }
-    Lit  operator^(bool b) const {
+    Lit operator^(bool b) const {
         Lit res;
         res.v = v ^ (unsigned)b;
         return res;
@@ -71,7 +68,6 @@ class JinkelaSat{
         bool _learnt;
         float act;
     public:
-        Clause(){}
         Clause(const std::vector<Lit> &ps, bool learnt): std::vector<Lit>(ps), _learnt(learnt), act(0){}
         float& activity(){ return act; }
         bool learnt() const { return _learnt; }
@@ -81,15 +77,14 @@ class JinkelaSat{
     struct VarData{
         ClausePtr reason;
         size_t level;
-        VarData(){}
-        VarData(ClausePtr r, size_t l):reason(r), level(l){}
+        VarData(ClausePtr r, size_t l): reason(r), level(l){}
     };
 
-    struct Watcher {
+    struct Watcher{
         ClausePtr cref;
         Lit blocker;
         Watcher(){}
-        Watcher(ClausePtr cr, Lit p): cref(cr), blocker(p) {}
+        Watcher(ClausePtr cr, Lit p): cref(cr), blocker(p){}
         bool operator==(ClausePtr cr) const { return cref == cr; }
     };
 
@@ -135,8 +130,6 @@ class JinkelaSat{
 
     int newVar(){
         int v = next_var++;
-        watches[Lit(v, false)].clear();
-        watches[Lit(v, true)].clear();
         assigns.emplace_back(Status::Undef);
         vardata.emplace_back(nullptr, 0);
         activity.emplace_back(0);
@@ -278,8 +271,7 @@ class JinkelaSat{
                 }
                 auto cr = i->cref;
                 Clause& c = *cr;
-                Lit false_lit = ~p;
-                if(c[0] == false_lit) std::swap(c[0], c[1]);
+                if(c[0] == ~p) std::swap(c[0], c[1]);
                 ++i;
 
                 Lit first = c[0];
@@ -290,7 +282,7 @@ class JinkelaSat{
 
                 for(size_t k = 2; k < c.size(); k++){
                     if(value(c[k]) != Status::False){
-                        c[1] = c[k], c[k] = false_lit;
+                        std::swap(c[1], c[k]);
                         watches[~c[1]].emplace_back(w);
                         goto NextClause;
                     }
@@ -299,8 +291,7 @@ class JinkelaSat{
                 if(value(first) == Status::False){
                     confl = cr;
                     qhead = trail.size();
-                    while(i != ws.end())
-                        *j++ = *i++;
+                    while(i != ws.end()) *j++ = *i++;
                 }else uncheckedEnqueue(first, cr);
                 NextClause:;
             }
@@ -375,15 +366,14 @@ class JinkelaSat{
             if(reason(out_learnt[i].var()) == nullptr || !litRedundant(out_learnt[i], analyze_toclear))
                 out_learnt[j++] = out_learnt[i];
         out_learnt.resize(j);
-        if(out_learnt.size() == 1) out_btlevel = 0;
-        else{
+        if(out_learnt.size() > 1){
             int max_i = 1;
             for(size_t i = 2; i < out_learnt.size(); ++i)
                 if(level(out_learnt[i].var()) > level(out_learnt[max_i].var()))
                     max_i = i;
             std::swap(out_learnt[1], out_learnt[max_i]);
             out_btlevel = level(out_learnt[1].var());
-        }
+        }else out_btlevel = 0;
         for(auto v: analyze_toclear) seen[v.var()] = 0;
     }
 
@@ -469,7 +459,7 @@ class JinkelaSat{
         }
     }
 public:
-    JinkelaSat(): qhead(0), cla_inc(1.0), var_inc(1), simpDB_assigns(-1), simpDB_props(0), next_var(0), num_clauses(0), clauses_literals(0), learnts_literals(0),ok(true){}
+    JinkelaSat(): qhead(0), cla_inc(1.0), var_inc(1), simpDB_assigns(-1), simpDB_props(0), next_var(0), num_clauses(0), clauses_literals(0), learnts_literals(0), ok(true){}
     size_t nClauses() const { return num_clauses; }
     size_t nVars() const { return next_var; }
     bool addClause(std::vector<Lit> ps){

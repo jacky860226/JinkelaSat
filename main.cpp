@@ -10,9 +10,6 @@ class MyParser: public DIMACS_CNF_parser_base<litTy>{
     litTy intToLit(int var) const override{
         return litTy(std::abs(var)-1, var < 0);
     }
-    litTy literalGetNeg(litTy lit) const override{
-        return ~lit;
-    }
     void readClause(const std::vector<litTy> &clause) override{
         solver.addClause(clause);
     }

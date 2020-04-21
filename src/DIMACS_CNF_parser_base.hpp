@@ -9,7 +9,6 @@
 template<class litTy>
 class DIMACS_CNF_parser_base{
     virtual litTy intToLit(int var) const = 0; // user define
-    virtual litTy literalGetNeg(litTy lit) const = 0; // user define
     virtual void readVariableNum(unsigned variableNum){
         // user define
     }
@@ -40,30 +39,14 @@ public:
         std::stringstream ss(all);
         std::vector<litTy> clause;
         int v;
-        bool redundant = false;
         while(ss >> v){
             if(v==0){
                 clause.shrink_to_fit();
-                if(!redundant) this->readClause(clause);
-                redundant = false;
+                this->readClause(clause);
                 clause.clear();
                 continue;
-            }else if(redundant){
-                continue;
             }
-            litTy literal = this->intToLit(v);
-            bool repeat = false;
-            for(litTy l: clause){
-                if(l == literal){
-                    repeat = true;
-                    break;
-                }
-                if(l == this->literalGetNeg(literal)){
-                    redundant = true;
-                    break;
-                }
-            }
-            if(!repeat) clause.emplace_back(literal);
+            clause.emplace_back(this->intToLit(v));
         }
     }
 };
