@@ -28,7 +28,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <unordered_map>
 #include <utility>
 #include <vector>
-namespace SimplifyMiniSat {
+namespace MiniSat {
 
 // Luby, A. Sinclair and D. Zuckerman, Optimal speedup of Las Vegas algorithms,
 // Information Processing
@@ -44,39 +44,37 @@ inline double luby(double y, int x) {
   return pow(y, seq);
 }
 
-struct Lit {
-  int v;
-  Lit() {}
-  Lit(int var, bool sign = false) : v(var + var + (int)sign) {}
-  Lit operator^(bool b) const {
-    Lit res;
-    res.v = v ^ (unsigned)b;
-    return res;
+struct Literal {
+  int Var;
+  Literal() : Var(-1) {}
+  Literal(int Var, bool Sign = false) : Var(Var * 2 + (int)Sign) {}
+  Literal operator^(bool b) const {
+    Literal Result;
+    Result.Var = Var ^ (int)b;
+    return Result;
   }
-  Lit operator~() const { return operator^(1); }
-  bool sign() const { return v & 1; }
-  int var() const { return v >> 1; }
-  operator int() const { return v; }
+  Literal operator~() const { return operator^(1); }
+  bool sign() const { return Var & 1; }
+  int var() const { return Var >> 1; }
+  operator int() const { return Var; }
+  bool isUndef() const { return Var == -1; }
 };
 
-const Lit lit_Undef = {-2};
-const int var_Undef = -1;
+class Clause : public std::vector<Literal> {
+  bool _learnt;
+  float act;
+
+public:
+  Clause(const std::vector<Literal> &ps, bool learnt)
+      : std::vector<Literal>(ps), _learnt(learnt), act(0) {}
+  float &activity() { return act; }
+  bool learnt() const { return _learnt; }
+};
+using ClausePtr = std::shared_ptr<Clause>;
 
 enum Status : int8_t { False = 0, True = 1, Undef = 2 };
 
 class JinkelaSat {
-  class Clause : public std::vector<Lit> {
-    bool _learnt;
-    float act;
-
-  public:
-    Clause(const std::vector<Lit> &ps, bool learnt)
-        : std::vector<Lit>(ps), _learnt(learnt), act(0) {}
-    float &activity() { return act; }
-    bool learnt() const { return _learnt; }
-  };
-  using ClausePtr = std::shared_ptr<Clause>;
-
   struct VarData {
     ClausePtr reason;
     size_t level;
@@ -85,14 +83,14 @@ class JinkelaSat {
 
   struct Watcher {
     ClausePtr cref;
-    Lit blocker;
+    Literal blocker;
     Watcher() {}
-    Watcher(ClausePtr cr, Lit p) : cref(cr), blocker(p) {}
+    Watcher(ClausePtr cr, Literal p) : cref(cr), blocker(p) {}
     bool operator==(ClausePtr cr) const { return cref == cr; }
   };
 
   size_t qhead;
-  std::vector<Lit> trail;
+  std::vector<Literal> trail;
   std::vector<ClausePtr> clauses;
   std::vector<ClausePtr> learnts;
   std::vector<int> trail_lim;
@@ -147,7 +145,7 @@ class JinkelaSat {
   void newDecisionLevel() { trail_lim.emplace_back(trail.size()); }
   size_t nAssigns() const { return trail.size(); }
   Status value(int x) const { return assigns[x]; }
-  Status value(Lit p) const {
+  Status value(Literal p) const {
     if (value(p.var()) == Status::Undef)
       return Status::Undef;
     return Status(int8_t(value(p.var())) ^ int8_t(p.sign()));
@@ -247,7 +245,7 @@ class JinkelaSat {
     cs.resize(j);
   }
 
-  void uncheckedEnqueue(Lit p, ClausePtr from = nullptr) {
+  void uncheckedEnqueue(Literal p, ClausePtr from = nullptr) {
     assigns[p.var()] = Status(!p.sign());
     vardata[p.var()] = VarData(from, decisionLevel());
     trail.emplace_back(p);
@@ -271,11 +269,11 @@ class JinkelaSat {
     ClausePtr confl = nullptr;
     int num_props = 0;
     while (qhead < trail.size()) {
-      Lit p = trail[qhead++];
+      Literal p = trail[qhead++];
       std::vector<Watcher> &ws = watches[p];
       std::vector<Watcher>::iterator i, j;
       for (i = j = ws.begin(); i != ws.end();) {
-        Lit blocker = i->blocker;
+        Literal blocker = i->blocker;
         if (value(blocker) == Status::True) {
           *j++ = *i++;
           continue;
@@ -286,7 +284,7 @@ class JinkelaSat {
           std::swap(c[0], c[1]);
         ++i;
 
-        Lit first = c[0];
+        Literal first = c[0];
         Watcher w = Watcher(cr, first);
         if (first != blocker && value(first) == Status::True) {
           *j++ = w;
@@ -316,7 +314,7 @@ class JinkelaSat {
     return confl;
   }
 
-  bool litRedundant(Lit p, std::vector<Lit> &analyze_toclear) {
+  bool litRedundant(Literal p, std::vector<Literal> &analyze_toclear) {
     enum {
       seen_undef = 0,
       seen_source = 1,
@@ -324,10 +322,10 @@ class JinkelaSat {
       seen_failed = 3
     };
     auto c = reason(p.var());
-    std::vector<std::pair<uint32_t, Lit>> Stack;
+    std::vector<std::pair<uint32_t, Literal>> Stack;
     for (size_t i = 1;; ++i) {
       if (i < c->size()) {
-        Lit l = (*c)[i];
+        Literal l = (*c)[i];
         if (level(l.var()) == 0 || seen[l.var()] == seen_source ||
             seen[l.var()] == seen_removable)
           continue;
@@ -358,18 +356,18 @@ class JinkelaSat {
     return true;
   }
 
-  void analyze(ClausePtr confl, std::vector<Lit> &out_learnt,
+  void analyze(ClausePtr confl, std::vector<Literal> &out_learnt,
                int &out_btlevel) {
     int pathC = 0;
-    Lit p = lit_Undef;
+    Literal p;
     out_learnt.emplace_back();
     int index = int(trail.size()) - 1;
     do {
       Clause &c = *confl;
       if (c.learnt())
         claBumpActivity(c);
-      for (size_t j = (p == lit_Undef) ? 0 : 1; j < c.size(); ++j) {
-        Lit q = c[j];
+      for (size_t j = p.isUndef() ? 0 : 1; j < c.size(); ++j) {
+        Literal q = c[j];
         if (!seen[q.var()] && level(q.var()) > 0) {
           varBumpActivity(q.var());
           seen[q.var()] = 1;
@@ -437,19 +435,20 @@ class JinkelaSat {
     learnts.resize(j);
   }
 
-  Lit pickBranchLit() {
-    int next = var_Undef;
-    while (next == var_Undef || value(next) != Status::Undef)
+  Literal pickBranchLit() {
+    const int VarUndef = -1;
+    int next = VarUndef;
+    while (next == VarUndef || value(next) != Status::Undef)
       if (order_heap.empty()) {
-        next = var_Undef;
+        next = VarUndef;
         break;
       } else {
         next = (*--order_heap.end()).second;
         order_heap.erase(--order_heap.end());
       }
-    if (next == var_Undef)
-      return lit_Undef;
-    return Lit(next, polarity[next]);
+    if (next == VarUndef)
+      return Literal();
+    return Literal(next, polarity[next]);
   }
 
   Status search(int nof_conflicts) {
@@ -460,7 +459,7 @@ class JinkelaSat {
         ++conflictC;
         if (decisionLevel() == 0)
           return Status::False;
-        std::vector<Lit> learnt_clause;
+        std::vector<Literal> learnt_clause;
         int backtrack_level;
         analyze(confl, learnt_clause, backtrack_level);
         cancelUntil(backtrack_level);
@@ -489,8 +488,8 @@ class JinkelaSat {
           return Status::False;
         if (int(learnts.size()) - int(nAssigns()) >= max_learnts)
           reduceDB();
-        Lit next = pickBranchLit();
-        if (next == lit_Undef)
+        Literal next = pickBranchLit();
+        if (next.isUndef())
           return Status::True;
         newDecisionLevel();
         uncheckedEnqueue(next);
@@ -505,16 +504,16 @@ public:
         ok(true) {}
   size_t nClauses() const { return num_clauses; }
   size_t nVars() const { return next_var; }
-  bool addClause(std::vector<Lit> ps) {
+  bool addClause(std::vector<Literal> ps) {
     if (!ok)
       return false;
-    for (Lit p : ps)
+    for (Literal p : ps)
       while (p.var() >= int(nVars()))
         newVar();
     std::sort(ps.begin(), ps.end());
-    Lit p = lit_Undef;
+    Literal p;
     size_t j = 0;
-    for (Lit l : ps) {
+    for (Literal l : ps) {
       if (value(l) == Status::True || l == ~p) {
         return true;
       } else if (value(l) != Status::False && l != p) {
@@ -554,5 +553,5 @@ public:
   const std::vector<Status> &getModel() const { return model; }
 };
 
-} // namespace SimplifyMiniSat
+} // namespace MiniSat
 #endif /* _JINKELA_SAT_ */

@@ -12,7 +12,7 @@ $ git clone https://github.com/jacky860226/JinkelaSat.git
 **Step 2:** Go to the project root and build by
 ~~~
 $ cd JinkelaSat
-$ g++ -std=c++11 -O3 main.cpp -o JinkelaSatSolver
+$ make
 ~~~
 
 ### 1.1. Dependencies
@@ -24,7 +24,12 @@ $ g++ -std=c++11 -O3 main.cpp -o JinkelaSatSolver
 Read DIMACS cnf data from **standard input**.
 
 ```
-$ ./JinkelaSatSolver < SampleCNF.cnf
+$ ./JinkelaSat < SampleCNF.cnf
+```
+
+You can test our benchmarks by:
+```
+$ make test
 ```
 
 ### 2.1. SATISFIABLE
