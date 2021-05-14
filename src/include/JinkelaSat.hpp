@@ -65,34 +65,34 @@ class Clause : public std::vector<Literal> {
   float act;
 
 public:
-  Clause(const std::vector<Literal> &ps, bool learnt)
-      : std::vector<Literal>(ps), _learnt(learnt), act(0) {}
+  using Ptr = std::unique_ptr<Clause>;
+  Clause(std::vector<Literal> &&ps, bool learnt)
+      : std::vector<Literal>(std::move(ps)), _learnt(learnt), act(0) {}
   float &activity() { return act; }
   bool learnt() const { return _learnt; }
 };
-using ClausePtr = std::shared_ptr<Clause>;
 
 enum Status : int8_t { False = 0, True = 1, Undef = 2 };
 
 class JinkelaSat {
   struct VarData {
-    ClausePtr reason;
+    Clause *reason;
     size_t level;
-    VarData(ClausePtr r, size_t l) : reason(r), level(l) {}
+    VarData(Clause *r, size_t l) : reason(r), level(l) {}
   };
 
   struct Watcher {
-    ClausePtr cref;
+    Clause *cref;
     Literal blocker;
     Watcher() {}
-    Watcher(ClausePtr cr, Literal p) : cref(cr), blocker(p) {}
-    bool operator==(ClausePtr cr) const { return cref == cr; }
+    Watcher(Clause *cr, Literal p) : cref(cr), blocker(p) {}
+    bool operator==(Clause *cr) const { return cref == cr; }
   };
 
   size_t qhead;
   std::vector<Literal> trail;
-  std::vector<ClausePtr> clauses;
-  std::vector<ClausePtr> learnts;
+  std::vector<Clause::Ptr> clauses;
+  std::vector<Clause::Ptr> learnts;
   std::vector<int> trail_lim;
   std::vector<Status> assigns;
   std::vector<VarData> vardata;
@@ -150,16 +150,16 @@ class JinkelaSat {
       return Status::Undef;
     return Status(int8_t(value(p.var())) ^ int8_t(p.sign()));
   }
-  ClausePtr reason(int x) const { return vardata[x].reason; }
+  Clause *reason(int x) const { return vardata[x].reason; }
   size_t level(int x) const { return vardata[x].level; }
-  bool locked(const ClausePtr c) const {
+  bool locked(const Clause *c) const {
     return value((*c)[0]) == Status::True && reason((*c)[0].var()) &&
            reason((*c)[0].var()) == c;
   }
 
   void claBumpActivity(Clause &c) {
     if ((c.activity() += cla_inc) > 1e20) {
-      for (auto l : learnts)
+      for (auto &l : learnts)
         l->activity() *= 1e-20;
       cla_inc *= 1e-20;
     }
@@ -188,14 +188,14 @@ class JinkelaSat {
         order_heap.emplace(activity[v], v);
   }
 
-  void watcheErase(std::vector<Watcher> &watche, ClausePtr cr) {
+  void watcheErase(std::vector<Watcher> &watche, Clause *cr) {
     auto it = std::find(watche.begin(), watche.end(), cr);
     if (it == watche.end())
       return;
     watche.erase(it);
   }
 
-  void attachClause(ClausePtr cr) {
+  void attachClause(Clause *cr) {
     const Clause &c = *cr;
     watches[~c[0]].emplace_back(cr, c[1]);
     watches[~c[1]].emplace_back(cr, c[0]);
@@ -205,7 +205,7 @@ class JinkelaSat {
       num_clauses++, clauses_literals += c.size();
   }
 
-  void detachClause(ClausePtr cr) {
+  void detachClause(Clause *cr) {
     const Clause &c = *cr;
     watcheErase(watches[~c[0]], cr);
     watcheErase(watches[~c[1]], cr);
@@ -214,12 +214,11 @@ class JinkelaSat {
     else
       num_clauses++, clauses_literals -= c.size();
   }
-  void removeClause(ClausePtr &cr) {
+  void removeClause(Clause::Ptr &cr) {
     Clause &c = *cr;
-    detachClause(cr);
-    if (locked(cr))
+    detachClause(&c);
+    if (locked(&c))
       vardata[c[0].var()].reason = nullptr;
-    cr = nullptr;
   }
 
   bool satisfied(const Clause &c) const {
@@ -228,9 +227,9 @@ class JinkelaSat {
         return true;
     return false;
   }
-  void removeSatisfied(std::vector<ClausePtr> &cs) {
+  void removeSatisfied(std::vector<Clause::Ptr> &cs) {
     size_t j = 0;
-    for (auto c : cs) {
+    for (auto &c : cs) {
       if (satisfied(*c))
         removeClause(c);
       else {
@@ -239,13 +238,13 @@ class JinkelaSat {
             c->at(k--) = c->back();
             c->pop_back();
           }
-        cs[j++] = c;
+        cs[j++] = std::move(c);
       }
     }
     cs.resize(j);
   }
 
-  void uncheckedEnqueue(Literal p, ClausePtr from = nullptr) {
+  void uncheckedEnqueue(Literal p, Clause *from = nullptr) {
     assigns[p.var()] = Status(!p.sign());
     vardata[p.var()] = VarData(from, decisionLevel());
     trail.emplace_back(p);
@@ -265,8 +264,8 @@ class JinkelaSat {
     }
   }
 
-  ClausePtr propagate() {
-    ClausePtr confl = nullptr;
+  Clause *propagate() {
+    Clause *confl = nullptr;
     int num_props = 0;
     while (qhead < trail.size()) {
       Literal p = trail[qhead++];
@@ -356,7 +355,7 @@ class JinkelaSat {
     return true;
   }
 
-  void analyze(ClausePtr confl, std::vector<Literal> &out_learnt,
+  void analyze(Clause *confl, std::vector<Literal> &out_learnt,
                int &out_btlevel) {
     int pathC = 0;
     Literal p;
@@ -417,7 +416,7 @@ class JinkelaSat {
     return true;
   }
 
-  static bool reduceDB_cmp(ClausePtr x, ClausePtr y) {
+  static bool reduceDB_cmp(const Clause::Ptr &x, const Clause::Ptr &y) {
     return x->size() > 2 && (y->size() == 2 || x->activity() < y->activity());
   }
   void reduceDB() {
@@ -425,12 +424,12 @@ class JinkelaSat {
     double extra_lim = cla_inc / learnts.size();
     std::sort(learnts.begin(), learnts.end(), reduceDB_cmp);
     for (size_t i = 0; i < learnts.size(); i++) {
-      auto c = learnts[i];
-      if (c->size() > 2 && !locked(c) &&
+      auto &c = learnts[i];
+      if (c->size() > 2 && !locked(c.get()) &&
           (i < learnts.size() / 2 || c->activity() < extra_lim)) {
         removeClause(c);
       } else
-        learnts[j++] = c;
+        learnts[j++] = std::move(c);
     }
     learnts.resize(j);
   }
@@ -466,11 +465,11 @@ class JinkelaSat {
         if (learnt_clause.size() == 1) {
           uncheckedEnqueue(learnt_clause[0]);
         } else {
-          auto cr = std::make_shared<Clause>(learnt_clause, true);
-          learnts.emplace_back(cr);
+          learnts.emplace_back(new Clause(std::move(learnt_clause), true));
+          auto cr = learnts.back().get();
           attachClause(cr);
           claBumpActivity(*cr);
-          uncheckedEnqueue(learnt_clause[0], cr);
+          uncheckedEnqueue((*cr)[0], cr);
         }
         varDecayActivity();
         claDecayActivity();
@@ -504,7 +503,7 @@ public:
         ok(true) {}
   size_t nClauses() const { return num_clauses; }
   size_t nVars() const { return next_var; }
-  bool addClause(std::vector<Literal> ps) {
+  bool addClause(std::vector<Literal> &&ps) {
     if (!ok)
       return false;
     for (Literal p : ps)
@@ -527,9 +526,8 @@ public:
       uncheckedEnqueue(ps[0]);
       return ok = (propagate() == nullptr);
     } else {
-      ClausePtr cr = std::make_shared<Clause>(ps, false);
-      clauses.emplace_back(cr);
-      attachClause(cr);
+      clauses.emplace_back(new Clause(std::move(ps), false));
+      attachClause(clauses.back().get());
     }
     return true;
   }

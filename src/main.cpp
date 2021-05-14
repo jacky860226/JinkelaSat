@@ -30,7 +30,7 @@ void to_ostream(MiniSat::JinkelaSat &Solver, const MiniSat::Status Result,
 
 int main() {
   DIMACS::CNF::Parser Parser;
-  auto Input = Parser.parse(std::cin);
+  auto Input = std::move(Parser.parse(std::cin));
 
   MiniSat::JinkelaSat Solver;
   adapteInput(Solver, Input);
